@@ -1,5 +1,6 @@
 /**
  * SmartBank Core Banking — MCP Server (Vercel Serverless)
+ * Supports both Streamable HTTP and legacy SSE discovery
  * Endpoint: https://your-app.vercel.app/api/core-banking
  */
 
@@ -21,37 +22,21 @@ const transactions = {
   "1002": [
     { date: "2026-05-28", description: "NEFT Received - Client Payment", amount: 45000.00, balance: 89320.00 },
     { date: "2026-05-25", description: "IMPS - Vendor Payment", amount: -12500.00, balance: 44320.00 },
-    { date: "2026-05-22", description: "Cheque Deposit", amount: 35000.00, balance: 56820.00 },
   ],
 };
 
 const TOOLS = [
-  {
-    name: "get_account_balance",
-    description: "Retrieve current balance, available balance, and account details for a given account number. Use when the user asks about their balance or how much money they have.",
-    inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number (e.g., 1001, 2001)" } }, required: ["account_number"] },
-  },
-  {
-    name: "get_transaction_history",
-    description: "Retrieve recent transactions for an account. Returns date, description, amount, and running balance.",
-    inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number" }, limit: { type: "number", description: "Number of transactions (default: 5)" } }, required: ["account_number"] },
-  },
-  {
-    name: "get_account_summary",
-    description: "Retrieve account summary including type, status, branch, and open date.",
-    inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number" } }, required: ["account_number"] },
-  },
-  {
-    name: "validate_account",
-    description: "Check if an account number is valid and active. Returns holder name and account type. Use before transfers.",
-    inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number to validate" } }, required: ["account_number"] },
-  },
-  {
-    name: "execute_transfer",
-    description: "Transfer funds between accounts. Returns transaction ID and new balance. Only call after explicit user confirmation.",
-    inputSchema: { type: "object", properties: { source_account: { type: "string" }, destination_account: { type: "string" }, amount: { type: "number" }, currency: { type: "string" } }, required: ["source_account", "destination_account", "amount"] },
-  },
+  { name: "get_account_balance", description: "Retrieve current balance, available balance, and account details for a given account number.", inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number (e.g., 1001, 2001)" } }, required: ["account_number"] } },
+  { name: "get_transaction_history", description: "Retrieve recent transactions for an account. Returns date, description, amount, and running balance.", inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number" }, limit: { type: "number", description: "Number of transactions (default: 5)" } }, required: ["account_number"] } },
+  { name: "get_account_summary", description: "Retrieve account summary including type, status, branch, and open date.", inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number" } }, required: ["account_number"] } },
+  { name: "validate_account", description: "Check if an account number is valid and active. Returns holder name and type.", inputSchema: { type: "object", properties: { account_number: { type: "string", description: "The account number to validate" } }, required: ["account_number"] } },
+  { name: "execute_transfer", description: "Transfer funds between accounts. Returns transaction ID and new balance. Only call after explicit user confirmation.", inputSchema: { type: "object", properties: { source_account: { type: "string" }, destination_account: { type: "string" }, amount: { type: "number" }, currency: { type: "string" } }, required: ["source_account", "destination_account", "amount"] } },
 ];
+
+const SERVER_INFO = {
+  name: "smartbank-core-banking",
+  version: "1.0.0",
+};
 
 function handleToolCall(name, args) {
   if (name === "get_account_balance") {
@@ -73,36 +58,102 @@ function handleToolCall(name, args) {
     return { valid: !!acc, holder_name: acc?.holder_name || null, masked_number: acc?.masked_number || null, account_type: acc?.account_type || null };
   }
   if (name === "execute_transfer") {
-    const src = accounts[args.source_account];
-    const dst = accounts[args.destination_account];
+    const src = accounts[args.source_account], dst = accounts[args.destination_account];
     if (!src || !dst) return { error: "Invalid account(s)" };
     if (src.balance < args.amount) return { error: "Insufficient balance", available: src.available_balance };
-    // Note: Vercel functions are stateless, so balance changes don't persist between calls.
-    // For demo purposes, we return realistic-looking results.
     return { transaction_id: "TXN" + Date.now(), status: "SUCCESS", timestamp: new Date().toISOString(), amount: args.amount, currency: args.currency || "INR", source_new_balance: src.balance - args.amount, destination_new_balance: dst.balance + args.amount };
   }
   return { error: `Unknown tool: ${name}` };
 }
 
-export default function handler(req, res) {
-  // CORS headers for Kore.ai platform
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+function handleJsonRpc(body) {
+  const { method, id, params } = body;
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method === "GET") return res.json({ status: "ok", server: "SmartBank Core Banking", tools: TOOLS.length });
-
-  const { method, id, params } = req.body;
-
-  if (method === "tools/list") {
-    return res.json({ jsonrpc: "2.0", id, result: { tools: TOOLS } });
+  // MCP initialize handshake
+  if (method === "initialize") {
+    return {
+      jsonrpc: "2.0",
+      id,
+      result: {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: SERVER_INFO,
+      },
+    };
   }
 
+  // Initialized notification — acknowledge
+  if (method === "notifications/initialized" || method === "initialized") {
+    return { jsonrpc: "2.0", id: id || null, result: {} };
+  }
+
+  // Tool discovery
+  if (method === "tools/list") {
+    return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
+  }
+
+  // Tool invocation
   if (method === "tools/call") {
     const result = handleToolCall(params.name, params.arguments || {});
-    return res.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
+    return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(result) }] } };
   }
 
-  return res.json({ jsonrpc: "2.0", id, error: { code: -32601, message: `Unknown method: ${method}` } });
+  // Ping
+  if (method === "ping") {
+    return { jsonrpc: "2.0", id, result: {} };
+  }
+
+  return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
+}
+
+export default function handler(req, res) {
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Mcp-Session-Id, MCP-Protocol-Version");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  // GET — health check or SSE stream request
+  if (req.method === "GET") {
+    const accept = req.headers.accept || "";
+    if (accept.includes("text/event-stream")) {
+      // SSE stream — send server info and keep-alive
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "SmartBank Core Banking MCP Server connected" } })}\n\n`);
+      // Vercel serverless can't hold long-lived connections, so end after initial message
+      return res.end();
+    }
+    return res.json({ status: "ok", server: "SmartBank Core Banking", version: "1.0.0", tools: TOOLS.length, protocol: "MCP 2024-11-05" });
+  }
+
+  // DELETE — session cleanup
+  if (req.method === "DELETE") {
+    return res.status(200).json({ jsonrpc: "2.0", result: { success: true } });
+  }
+
+  // POST — JSON-RPC messages
+  if (req.method === "POST") {
+    const body = req.body;
+
+    // Handle batch requests (array of JSON-RPC messages)
+    if (Array.isArray(body)) {
+      const responses = body.map(msg => handleJsonRpc(msg)).filter(r => r.id !== null);
+      return res.json(responses);
+    }
+
+    // Single request
+    const response = handleJsonRpc(body);
+
+    // Notifications don't need a response body
+    if (!body.id && (body.method === "notifications/initialized" || body.method === "initialized")) {
+      return res.status(202).end();
+    }
+
+    return res.json(response);
+  }
+
+  return res.status(405).json({ error: "Method not allowed" });
 }
