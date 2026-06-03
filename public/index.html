@@ -1,0 +1,118 @@
+px 0}
+.tools{font-size:12px;color:#94a3b8;margin-top:6px}
+.tools span{background:#1e3a5f;color:#3b82f6;padding:2px 6px;border-radius:3px;font-size:11px;margin-right:4px;display:inline-block;margin-bottom:3px}
+table{width:100%;font-size:12px;border-collapse:collapse;margin-top:8px}
+th{text-align:left;color:#64748b;font-weight:600;padding:6px 8px;border-bottom:1px solid #1e293b}
+td{padding:6px 8px;border-bottom:1px solid #1e293b11;color:#94a3b8}
+.status{font-size:11px;color:#64748b;margin-top:16px;text-align:center}
+#results{margin-top:12px}
+.result-card{background:#1a2234;border-radius:6px;padding:10px 12px;margin-bottom:8px;font-size:12px}
+.result-card .label{color:#64748b;font-weight:600;margin-bottom:4px}
+.result-card .val{color:#10b981;font-family:monospace}
+.result-card .err{color:#ef4444;font-family:monospace}
+button{background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:12px}
+button:hover{background:#2563eb}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏦 SmartBank MCP Demo Servers</h1>
+  <p class="sub">Mock banking MCP servers for Kore.ai Agent Platform training</p>
+
+  <div class="card">
+    <h2><span class="dot green"></span> Core Banking</h2>
+    <div class="url">/api/core-banking</div>
+    <div class="tools">
+      <span>get_account_balance</span>
+      <span>get_transaction_history</span>
+      <span>get_account_summary</span>
+      <span>validate_account</span>
+      <span>execute_transfer</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot green"></span> CRM</h2>
+    <div class="url">/api/crm</div>
+    <div class="tools">
+      <span>get_customer_profile</span>
+      <span>get_customer_interactions</span>
+      <span>update_customer_preferences</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot green"></span> Fraud Detection</h2>
+    <div class="url">/api/fraud</div>
+    <div class="tools">
+      <span>score_transaction_risk</span>
+      <span>get_account_risk_profile</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Test Data</h2>
+    <table>
+      <tr><th>Account</th><th>Holder</th><th>Type</th><th>Balance (INR)</th></tr>
+      <tr><td>1001</td><td>Rajesh Kumar</td><td>Savings</td><td>2,45,680.50</td></tr>
+      <tr><td>1002</td><td>Rajesh Kumar</td><td>Current</td><td>89,320.00</td></tr>
+      <tr><td>2001</td><td>Priya Sharma</td><td>Savings</td><td>5,32,100.75</td></tr>
+      <tr><td>3001</td><td>Amit Patel</td><td>Savings</td><td>15,200.00</td></tr>
+    </table>
+    <table style="margin-top:12px">
+      <tr><th>Customer</th><th>Name</th><th>Segment</th></tr>
+      <tr><td>C001</td><td>Rajesh Kumar</td><td>Premium</td></tr>
+      <tr><td>C002</td><td>Priya Sharma</td><td>Regular</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Quick Health Check</h2>
+    <button onclick="checkAll()">Check All Servers</button>
+    <div id="results"></div>
+  </div>
+
+  <div class="card">
+    <h2>How to Connect to Kore.ai</h2>
+    <div style="font-size:12px;color:#94a3b8;line-height:1.7">
+      1. In Studio → <strong>Tools → + New Tool → MCP Tool</strong><br>
+      2. Name: "SmartBank Core Banking"<br>
+      3. Type: <strong>HTTP</strong><br>
+      4. URL: <strong><span id="base-url">https://your-app.vercel.app</span>/api/core-banking</strong><br>
+      5. Auth: <strong>None</strong><br>
+      6. Click <strong>Test</strong> → tools auto-discovered<br>
+      7. Select tools → <strong>Add Selected</strong> → Link to agent<br><br>
+      Repeat for <code>/api/crm</code> and <code>/api/fraud</code>
+    </div>
+  </div>
+
+  <p class="status">These are mock servers with hardcoded data for demo purposes only.</p>
+</div>
+
+<script>
+  // Auto-detect the base URL
+  document.getElementById('base-url').textContent = window.location.origin;
+
+  async function checkAll() {
+    const el = document.getElementById('results');
+    el.innerHTML = '<div style="color:#64748b;font-size:12px;padding:8px">Checking...</div>';
+    const servers = [
+      { name: 'Core Banking', path: '/api/core-banking' },
+      { name: 'CRM', path: '/api/crm' },
+      { name: 'Fraud Detection', path: '/api/fraud' },
+    ];
+    let html = '';
+    for (const s of servers) {
+      try {
+        const r = await fetch(s.path);
+        const d = await r.json();
+        html += `<div class="result-card"><div class="label">${s.name}</div><div class="val">✓ ${d.status} — ${d.tools} tools available</div></div>`;
+      } catch (e) {
+        html += `<div class="result-card"><div class="label">${s.name}</div><div class="err">✗ ${e.message}</div></div>`;
+      }
+    }
+    el.innerHTML = html;
+  }
+</script>
+</body>
+</html>
